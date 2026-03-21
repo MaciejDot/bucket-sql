@@ -723,6 +723,7 @@ function is_identifier(token) {
 }
 
 function tokenizer(command, args = []) {
+  let start = performance.now()
   const text = String(command || '').trim()
   const tokens = []
   let i = 0
@@ -816,6 +817,7 @@ function tokenizer(command, args = []) {
     throw new Error(`unexpected character in SQL: ${ch}`)
   }
   tokens.push({ type: 'eof', value: null })
+  console.log('tokenization took', performance.now() -start)
   return { tokens, args, text }
 }
 
@@ -879,7 +881,14 @@ class sql_parser {
     return value
   }
 
-  parse_statement() {
+  parse_statement(){
+    let start = performance.now();
+    const result = this._parse_statement()
+    console.log('parsing took', performance.now() - start)
+    return result;
+  }
+
+  _parse_statement() {
     const token = this.current()
     if (!token) throw new Error('empty command')
     if (is_keyword(token, 'create')) return this.parse_create()
@@ -1644,6 +1653,13 @@ async function create_bucket_and_load_it_into_memory(bucket_id) {
 }
 
 async function execute_plan(bucket_id, plan) {
+    let start = performance.now()
+    const result = await _execute_plan(bucket_id, plan);
+    console.log('plan execution took', performance.now() - start)
+    return result;
+}
+
+async function _execute_plan(bucket_id, plan) {
   const bucket_state = await load_bucket_into_memory(bucket_id)
   const lock = get_bucket_lock(bucket_id)
   return lock.run(async () => {
@@ -1965,8 +1981,13 @@ async function execute(bucket_id, command, args = []) {
     return serialize_error_result({ code: 'execute_error', message: error.message || String(error) })
   }
 }
-
 async function query(bucket_id, query_text, args = []) {
+    const start = performance.now();
+    const result = await _query(bucket_id, query_text, args);
+    console.log('query took', performance.now() - start)
+    return result;
+}
+async function _query(bucket_id, query_text, args = []) {
   try {
     return await run_command(bucket_id, query_text, args)
   } catch (error) {

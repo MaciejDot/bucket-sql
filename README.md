@@ -6,7 +6,7 @@ node ./test.js
 ```
 
 
-c (not implemented)
+c
 ```bash
-clang bucket-db.c -w -o bucket-db && ./bucket-db
+clang -std=c11 -O2 -Wall -Wextra -pedantic ./bucket_db.c ./test.c -o bucket_db_test
 ```
