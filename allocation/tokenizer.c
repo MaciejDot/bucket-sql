@@ -402,6 +402,7 @@ void print_tokenize_result(tokenize_result_t* result) {
 
 
 int main() {
+    printf("start");
 const uint8_t* query = (const uint8_t*)
         "SELECT * FROMe tab WHERE a= \"classical music where it counts\" /*SELECT * FROM*/;";
 
@@ -411,7 +412,6 @@ string_t query_string= {
 };
 alloc_area area;
 malloc_area(&area, 128000);
-
 print_tokenize_result(
     tokenize(&query_string, &area)
 );
