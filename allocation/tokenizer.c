@@ -70,12 +70,24 @@ static const tokenize_result_t TOKENIZE_ERROR_NOT_ENOUGH_SPACE = {
 
 /** generic error string creation */
 void make_error_string(alloc_area* area, tokenize_result_t* tokenize_result, const char* fmt, ...) {
-    tokenize_result->error_message = alloc_string_on_area(area, ERROR_MAX_LEN + 1);
+    tokenize_result->error_message = alloc_string_on_area(area, ERROR_MAX_LEN);
+    if (tokenize_result->error_message == NULL) {
+        tokenize_result->is_error = 1;
+        return;
+    }
+
     va_list args;
     va_start(args, fmt);
-    int written = vsnprintf(tokenize_result->error_message->data, ERROR_MAX_LEN, fmt, args);
+    int written = vsnprintf(
+        (char*)tokenize_result->error_message->data,
+        ERROR_MAX_LEN + 1,
+        fmt,
+        args
+    );
     va_end(args);
+
     tokenize_result->error_message->len = (written >= ERROR_MAX_LEN) ? ERROR_MAX_LEN : (size_t)written;
+    tokenize_result->is_error = 1;
 }
 
 void error_no_end_string_literal(
@@ -148,13 +160,16 @@ void skip_whitespaces(string_t* query, size_t* current_index){
 };
 
 tokenize_result_t* initialize_tokenize_result(alloc_area* allocation_space){
-    size_t current_index = 0;
-    tokenize_result_t* result = alloc_on_area(allocation_space, sizeof(result));
+    tokenize_result_t* result = alloc_on_area(allocation_space, sizeof(tokenize_result_t));
+    if (result == NULL) {
+        return NULL;
+    }
 
-    result -> head = NULL;
-    result -> tail = NULL;
-    result -> error_message = NULL;
-    result -> is_error = 0;
+    result->head = NULL;
+    result->tail = NULL;
+    result->error_message = NULL;
+    result->is_error = 0;
+    return result;
 }
 
 token_t* append_result(tokenize_result_t* tokenize_result, alloc_area* allocation_space){
@@ -200,14 +215,19 @@ uint8_t is_it_single_line_comment(string_t* query, size_t* current_index){
 
 uint8_t is_it_multi_line_comment(string_t* query, size_t* current_index) {
     if(is_it_begining_of_multi_line_comment(query, *current_index)){
-        *current_index +=2;
-        while((*current_index) + 1 < query->len && 
-            (query->data[(*current_index)] != "*" || 
-            query->data[(*current_index) + 1] != "/") )
+        *current_index += 2;
+        while((*current_index) + 1 < query->len &&
+            (query->data[*current_index] != '*' ||
+             query->data[*current_index + 1] != '/'))
         {
             *current_index += 1;
         }
-        *current_index +=2;
+
+        if ((*current_index) + 1 >= query->len) {
+            return 1;
+        }
+
+        *current_index += 2;
         return 1;
     }
     return 0;
@@ -220,20 +240,22 @@ uint8_t is_it_comment(string_t* query, size_t* current_index){
     return is_it_multi_line_comment(query, current_index);
 }
 
+//what about "abc\\\"def"
+
 tokenizer_status_t is_it_string_literal(string_t* query, size_t* current_index, tokenize_result_t* tokenize_result, alloc_area* allocation_space){
     uint8_t first_character = query->data[*current_index];
-    
-    if(first_character != '\'' || first_character != '"') {
+
+    if(first_character != '\'' && first_character != '"') {
         return TOKENIZER_NO_MATCH;
     }
-    
+
     size_t starting_index = *current_index;
 
     *current_index += 1;
     uint8_t found_end = 0;
 
-    while(*current_index < query -> len){
-        if(query -> data[(*current_index)-1] != '\\' && query -> data[(*current_index)] == first_character){
+    while(*current_index < query->len){
+        if(query->data[*current_index - 1] != '\\' && query->data[*current_index] == first_character){
             found_end = 1;
             break;
         }
@@ -241,51 +263,55 @@ tokenizer_status_t is_it_string_literal(string_t* query, size_t* current_index, 
     }
 
     if(!found_end){
-         error_no_end_string_literal(
+        error_no_end_string_literal(
             tokenize_result,
             allocation_space,
             first_character,
             starting_index
         );
-
         return TOKENIZER_FATAL;
     }
 
-    if((*current_index) +1 != query->len || (
-        it_is_whitespace(query, (*current_index) +1) ||
-        query->data[(*current_index) +1] != ';' ||
-        query->data[(*current_index) +1] != ',' ||
-        query->data[(*current_index) +1] != '.' ||
-        query->data[(*current_index) +1] != ')' ||
-        it_is_begining_of_comment(query, (*current_index) +1)
-    )
-    
-    
-    ){
+    if ((*current_index) + 1 < query->len &&
+        !(
+            it_is_whitespace(query, (*current_index) + 1) ||
+            query->data[(*current_index) + 1] == ';' ||
+            query->data[(*current_index) + 1] == ',' ||
+            query->data[(*current_index) + 1] == '.' ||
+            query->data[(*current_index) + 1] == ')' ||
+            it_is_begining_of_comment(query, (*current_index) + 1)
+        ))
+    {
         error_invalid_charcter_after_string_literal(
             tokenize_result,
             allocation_space,
             first_character,
-            query->data[(*current_index) +1],
-            (*current_index) +1
+            query->data[(*current_index) + 1],
+            (*current_index) + 1
         );
         return TOKENIZER_FATAL;
     }
 
     token_t* token = append_result(tokenize_result, allocation_space);
-    
-    size_t string_length = *current_index - starting_index - 2; 
-    
-    token -> token_kind = TOKEN_STRING_LITERAL;
-    token -> token_value.string_literal = alloc_string_on_area(allocation_space, string_length);
+    if (token == NULL) {
+        return TOKENIZER_FATAL;
+    }
+
+    size_t string_length = *current_index - starting_index - 1;
+
+    token->token_kind = TOKEN_STRING_LITERAL;
+    token->token_value.string_literal = alloc_string_on_area(allocation_space, string_length);
+    if (token->token_value.string_literal == NULL) {
+        return TOKENIZER_FATAL;
+    }
 
     for(size_t char_index = 0; char_index < string_length; char_index += 1){
-        token -> token_value.string_literal ->data[char_index] = query->data[char_index + 1 + starting_index];
+        token->token_value.string_literal->data[char_index] = query->data[char_index + 1 + starting_index];
     }
-    
-    return TOKENIZER_FATAL;
-}
 
+    (*current_index)++;
+    return TOKENIZER_MATCH;
+}
 /*
     should also signalize termination error for example - not ending string or string end that is like 'sdfjksy ssdf'FROM
     0 - ok - did not found anything
@@ -299,24 +325,7 @@ tokenizer_status_t is_it_placeholder(string_t* query, size_t* current_index, tok
 
 }
 
-tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
-    if(allocation_space->capacity - allocation_space->offset < max_size_of_tokenize_result(query)){
-        return &TOKENIZE_ERROR_NOT_ENOUGH_SPACE;
-    }
-
-    size_t current_index = 0;
-    tokenize_result_t* result = initialize_tokenize_result(allocation_space);
-
-    while(current_index < query->len){
-        skip_whitespaces(query, &current_index);
-        
-        if(is_it_comment(query, &current_index)){
-            continue;
-        }
-
-        TOKENIZER_PIPE_PART_CALL(is_it_string_literal(query, &current_index, result, allocation_space));
-        TOKENIZER_PIPE_PART_CALL(is_it_placeholder(query, &current_index, result, allocation_space));
-        /*
+ /*
         TOKENIZER_PIPE_PART_CALL(is_it_number(query, &current_index, result, allocation_space));
         TOKENIZER_PIPE_PART_CALL(is_it_identifier_or_keyword(query, &current_index, result, allocation_space));
         TOKENIZER_PIPE_PART_CALL(is_it_punctuation(query, &current_index, result, allocation_space));
@@ -324,14 +333,35 @@ tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
         6. identifiers → keyword check
         7. operators / punctuation
         */
+tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
+    if(allocation_space->capacity - allocation_space->offset < max_size_of_tokenize_result(query)){
+        return &TOKENIZE_ERROR_NOT_ENOUGH_SPACE;
+    }
+
+    size_t current_index = 0;
+    tokenize_result_t* result = initialize_tokenize_result(allocation_space);
+    if (result == NULL) {
+        return &TOKENIZE_ERROR_NOT_ENOUGH_SPACE;
+    }
+
+    while(current_index < query->len){
+        skip_whitespaces(query, &current_index);
+
+        if(current_index >= query->len) break;
+
+        if(is_it_comment(query, &current_index)){
+            continue;
+        }
+
+        TOKENIZER_PIPE_PART_CALL(is_it_string_literal(query, &current_index, result, allocation_space));
+        TOKENIZER_PIPE_PART_CALL(is_it_placeholder(query, &current_index, result, allocation_space));
 
         error_tokenizer_could_not_tokenize_character(result, allocation_space, query->data[current_index], current_index);
-
         break;
     }
 
     return result;
-};
+}
 
 
 static void print_string(string_t* str) {
@@ -404,11 +434,11 @@ void print_tokenize_result(tokenize_result_t* result) {
 int main() {
     printf("start");
 const uint8_t* query = (const uint8_t*)
-        "SELECT * FROMe tab WHERE a= \"classical music where it counts\" /*SELECT * FROM*/;";
+        "\"classical music where it counts\" /*SELECT * FROM*/;";
 
 string_t query_string= {
     query,
-    sizeof(query) - 1
+    strlen((const char*)query)
 };
 alloc_area area;
 malloc_area(&area, 128000);

@@ -9,8 +9,11 @@
 string_t* alloc_string_on_area(alloc_area* a, size_t length){
     string_t* ptr = alloc_on_area(a, sizeof(string_t));
     if(ptr == NULL) return NULL;
+
     ptr->len = length;
-    ptr->data = alloc_on_area(a, length * sizeof(uint8_t));
+    ptr->data = alloc_on_area(a, (length + 1) * sizeof(uint8_t));
     if(ptr->data == NULL) return NULL;
+
+    ptr->data[length] = '\0';
     return ptr;
 }
