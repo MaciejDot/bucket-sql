@@ -172,7 +172,7 @@ typedef enum keyword_kind {
     KEYWORD__COUNT
 } keyword_t;
 
-typedef struct token {
+typedef struct token_t {
     token_kind_t kind;
     uint32_t start;   /* byte offset into tokenization_view.source */
     uint32_t length;  /* byte length */
