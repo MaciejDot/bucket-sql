@@ -10,7 +10,7 @@
 #include "alloc_strings.h"
 
 #define ERROR_MAX_LEN 100
-
+#define MAX_NUMBER_LEN 63
 //to internal headers
 #define TOKENIZER_PIPE_PART_CALL(fn_call)              \
     {                                    \
@@ -20,6 +20,289 @@
     }
 
 /* types */
+
+typedef enum punctuation_kind {
+    // single char
+    PUNC_LPAREN,      // (
+    PUNC_RPAREN,      // )
+    PUNC_COMMA,       // ,
+    PUNC_SEMICOLON,   // ;
+    PUNC_DOT,         // .
+    PUNC_STAR,        // *
+    PUNC_EQUAL,       // =
+    PUNC_PLUS,        // +
+    PUNC_MINUS,       // -
+    PUNC_SLASH,       // /
+    PUNC_PERCENT,     // %
+
+    // comparisons
+    PUNC_NOT_EQUAL,   // != or <>
+    PUNC_LESS,        // <
+    PUNC_LESS_EQ,     // <=
+    PUNC_GREATER,     // >
+    PUNC_GREATER_EQ,  // >=
+
+} punctuation_kind_t;
+
+typedef struct punctuation_entry {
+    const char* symbol;
+    size_t len;
+    punctuation_kind_t kind;
+} punctuation_entry_t;
+
+static const punctuation_entry_t punctuations[] = {
+    {"!=", 2, PUNC_NOT_EQUAL},
+    {"<>", 2, PUNC_NOT_EQUAL},
+    {"<=", 2, PUNC_LESS_EQ},
+    {">=", 2, PUNC_GREATER_EQ},
+
+    {"(", 1, PUNC_LPAREN},
+    {")", 1, PUNC_RPAREN},
+    {",", 1, PUNC_COMMA},
+    {";", 1, PUNC_SEMICOLON},
+    {".", 1, PUNC_DOT},
+    {"*", 1, PUNC_STAR},
+    {"=", 1, PUNC_EQUAL},
+    {"+", 1, PUNC_PLUS},
+    {"-", 1, PUNC_MINUS},
+    {"/", 1, PUNC_SLASH},
+    {"%", 1, PUNC_PERCENT},
+    {"<", 1, PUNC_LESS},
+    {">", 1, PUNC_GREATER},
+};
+
+typedef enum keyword_kind {
+    // Core CRUD / DQL
+    KW_SELECT,
+    KW_INSERT,
+    KW_UPDATE,
+    KW_DELETE,
+
+    // Clauses
+    KW_FROM,
+    KW_WHERE,
+    KW_GROUP,
+    KW_BY,
+    KW_HAVING,
+    KW_ORDER,
+    KW_LIMIT,
+    KW_OFFSET,
+
+    // Joins
+    KW_JOIN,
+    KW_INNER,
+    KW_LEFT,
+    KW_RIGHT,
+    KW_FULL,
+    KW_OUTER,
+    KW_CROSS,
+    KW_NATURAL,
+    KW_ON,
+    KW_USING,
+
+    // Insert / update helpers
+    KW_INTO,
+    KW_VALUES,
+    KW_SET,
+
+    // Conditions / logic
+    KW_AND,
+    KW_OR,
+    KW_NOT,
+    KW_IN,
+    KW_EXISTS,
+    KW_LIKE,
+    KW_BETWEEN,
+    KW_IS,
+    KW_NULL,
+    KW_TRUE,
+    KW_FALSE,
+
+    // Set operations
+    KW_UNION,
+    KW_ALL,
+    KW_DISTINCT,
+
+    // Aggregates / functions
+    KW_COUNT,
+    KW_SUM,
+    KW_MIN,
+    KW_MAX,
+    KW_AVG,
+
+    // Window functions / window clauses
+    KW_OVER,
+    KW_PARTITION,
+    KW_ROWS,
+    KW_RANGE,
+    KW_PRECEDING,
+    KW_FOLLOWING,
+    KW_UNBOUNDED,
+    KW_CURRENT,
+    KW_ROW,
+    KW_ROW_NUMBER,
+    KW_RANK,
+    KW_DENSE_RANK,
+    KW_LAG,
+    KW_LEAD,
+
+    // Sorting
+    KW_ASC,
+    KW_DESC,
+
+    // DDL
+    KW_CREATE,
+    KW_ALTER,
+    KW_DROP,
+    KW_TABLE,
+
+    // Table constraints
+    KW_PRIMARY,
+    KW_KEY,
+    KW_FOREIGN,
+    KW_REFERENCES,
+    KW_CONSTRAINT,
+    KW_UNIQUE,
+    KW_CHECK,
+    KW_DEFAULT,
+
+    // Data types
+    KW_INT,
+    KW_FLOAT,
+    KW_TEXT,
+    KW_VARCHAR,
+    KW_BOOL,
+
+    // Transactions
+    KW_BEGIN,
+    KW_START,
+    KW_TRANSACTION,
+    KW_COMMIT,
+    KW_ROLLBACK,
+    KW_SAVEPOINT,
+
+    // Misc
+    KW_AS,
+    KW_CASE,
+    KW_WHEN,
+    KW_THEN,
+    KW_ELSE,
+    KW_END,
+
+    KW_UNKNOWN
+} keyword_kind_t;
+
+typedef struct keyword_entry {
+    const char* name;
+    keyword_kind_t kind;
+} keyword_entry_t;
+
+static const keyword_entry_t keywords[] = {
+    {"select", KW_SELECT},
+    {"insert", KW_INSERT},
+    {"update", KW_UPDATE},
+    {"delete", KW_DELETE},
+
+    {"from", KW_FROM},
+    {"where", KW_WHERE},
+    {"group", KW_GROUP},
+    {"by", KW_BY},
+    {"having", KW_HAVING},
+    {"order", KW_ORDER},
+    {"limit", KW_LIMIT},
+    {"offset", KW_OFFSET},
+
+    {"join", KW_JOIN},
+    {"inner", KW_INNER},
+    {"left", KW_LEFT},
+    {"right", KW_RIGHT},
+    {"full", KW_FULL},
+    {"outer", KW_OUTER},
+    {"cross", KW_CROSS},
+    {"natural", KW_NATURAL},
+    {"on", KW_ON},
+    {"using", KW_USING},
+
+    {"into", KW_INTO},
+    {"values", KW_VALUES},
+    {"set", KW_SET},
+
+    {"and", KW_AND},
+    {"or", KW_OR},
+    {"not", KW_NOT},
+    {"in", KW_IN},
+    {"exists", KW_EXISTS},
+    {"like", KW_LIKE},
+    {"between", KW_BETWEEN},
+    {"is", KW_IS},
+    {"null", KW_NULL},
+    {"true", KW_TRUE},
+    {"false", KW_FALSE},
+
+    {"union", KW_UNION},
+    {"all", KW_ALL},
+    {"distinct", KW_DISTINCT},
+
+    {"count", KW_COUNT},
+    {"sum", KW_SUM},
+    {"min", KW_MIN},
+    {"max", KW_MAX},
+    {"avg", KW_AVG},
+
+    {"over", KW_OVER},
+    {"partition", KW_PARTITION},
+    {"rows", KW_ROWS},
+    {"range", KW_RANGE},
+    {"preceding", KW_PRECEDING},
+    {"following", KW_FOLLOWING},
+    {"unbounded", KW_UNBOUNDED},
+    {"current", KW_CURRENT},
+    {"row", KW_ROW},
+    {"row_number", KW_ROW_NUMBER},
+    {"rank", KW_RANK},
+    {"dense_rank", KW_DENSE_RANK},
+    {"lag", KW_LAG},
+    {"lead", KW_LEAD},
+
+    {"asc", KW_ASC},
+    {"desc", KW_DESC},
+
+    {"create", KW_CREATE},
+    {"alter", KW_ALTER},
+    {"drop", KW_DROP},
+    {"table", KW_TABLE},
+
+    {"primary", KW_PRIMARY},
+    {"key", KW_KEY},
+    {"foreign", KW_FOREIGN},
+    {"references", KW_REFERENCES},
+    {"constraint", KW_CONSTRAINT},
+    {"unique", KW_UNIQUE},
+    {"check", KW_CHECK},
+    {"default", KW_DEFAULT},
+
+    {"int", KW_INT},
+    {"float", KW_FLOAT},
+    {"text", KW_TEXT},
+    {"varchar", KW_VARCHAR},
+    {"bool", KW_BOOL},
+
+    {"begin", KW_BEGIN},
+    {"start", KW_START},
+    {"transaction", KW_TRANSACTION},
+    {"commit", KW_COMMIT},
+    {"rollback", KW_ROLLBACK},
+    {"savepoint", KW_SAVEPOINT},
+
+    {"as", KW_AS},
+    {"case", KW_CASE},
+    {"when", KW_WHEN},
+    {"then", KW_THEN},
+    {"else", KW_ELSE},
+    {"end", KW_END},
+};
+
+
 typedef enum {
     TOKENIZER_MATCH,
     TOKENIZER_NO_MATCH,
@@ -32,13 +315,16 @@ typedef enum token_kind {
     TOKEN_STRING_LITERAL,
     TOKEN_PLACEHOLDER,
     TOKEN_FLOAT_LITERAL,
-    TOKEN_INT_LITERAL,
+    TOKEN_LONG_LITERAL,
+    TOKEN_PUNCTUATION,
 } token_kind_t;
 
 typedef union token_value {
     string_t* string;
     float as_float;
-    signed long long as_long;  
+    unsigned long long as_long; 
+    keyword_kind_t keyword;
+    punctuation_kind_t punctuation;
 } token_value_t;
 
 typedef struct token {
@@ -372,20 +658,186 @@ tokenizer_status_t is_it_placeholder(string_t* query, size_t* current_index, tok
     }
 
     return TOKENIZER_MATCH;
-
-
-    // @ 
-
 }
 
- /*
-        TOKENIZER_PIPE_PART_CALL(is_it_number(query, &current_index, result, allocation_space));
-        TOKENIZER_PIPE_PART_CALL(is_it_identifier_or_keyword(query, &current_index, result, allocation_space));
-        TOKENIZER_PIPE_PART_CALL(is_it_punctuation(query, &current_index, result, allocation_space));
-        5. numbers
-        6. identifiers → keyword check
-        7. operators / punctuation
-        */
+
+uint8_t is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+tokenizer_status_t is_it_number(
+    string_t* query,
+    size_t* current_index,
+    tokenize_result_t* result,
+    alloc_area* area
+) {
+    
+    if(!is_digit(query->data[*current_index])){
+        return TOKENIZER_NO_MATCH;
+    }
+
+    size_t start_index = *current_index;
+    uint8_t has_dot = 0;
+    *current_index += 1;
+
+    while(
+        (is_digit(query->data[*current_index]) || query->data[*current_index] == '.') && (*current_index) < query->len
+    ){
+        if(query->data[*current_index] == '.' && has_dot){
+            make_error_string(area, result, "double dot in number literal not allowed at %i position", *current_index);
+            return TOKENIZER_FATAL;
+        }
+        if(query->data[*current_index] == '.'){
+            has_dot = 1;
+        }
+        *current_index += 1;
+    }
+
+    size_t length = *current_index - start_index;
+
+    if(length > MAX_NUMBER_LEN){
+        make_error_string(
+            area, result, "number literal starting at %i position is to long max length is %i",
+            start_index,
+            MAX_NUMBER_LEN
+        );
+        return TOKENIZER_FATAL;
+    }
+
+    token_t* token = append_result(result, area);
+
+    char buffer[MAX_NUMBER_LEN + 1];
+    memcpy(buffer, &query->data[start_index], length);
+    buffer[length] = '\0';
+
+    if (has_dot) {
+        token -> token_kind = TOKEN_FLOAT_LITERAL;
+        token -> token_value.as_float = strtof(buffer, NULL);
+    } else {
+        token -> token_kind =  TOKEN_LONG_LITERAL;
+        token -> token_value.as_long = strtoll(buffer, NULL, 10);
+    }
+
+    return TOKENIZER_MATCH;
+}
+
+
+uint8_t is_alphabetical_or_floor(uint8_t c) {
+    return (c >= 'a' && c <= 'z') ||
+           (c >= 'A' && c <= 'Z') ||
+            c == '_';
+}
+
+uint8_t is_alphanumerical_or_floor(uint8_t c) {
+    return is_alphabetical_or_floor(c) || (c >= '0' && c <= '9');
+}
+
+size_t keyword_count() {
+    return sizeof(keywords) / sizeof(keywords[0]);
+}
+
+uint8_t to_lower_ascii(uint8_t c) {
+    if (c >= 'A' && c <= 'Z') return c + ('a' - 'A');
+    return c;
+}
+
+uint8_t strn_eq_ignore_case(uint8_t* a, uint8_t* b, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        if (to_lower_ascii(a[i]) != b[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+keyword_entry_t* keyword_lookup(uint8_t* s, size_t len) {
+    uint8_t count = keyword_count();
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t* kw = keywords[i].name;
+        if (to_lower_ascii(s[0]) != kw[0]) continue;
+        if (strlen(kw) == len &&
+            strn_eq_ignore_case(s, kw, len)) {
+            return &keywords[i];
+        }
+    }
+    return NULL;
+}
+
+tokenizer_status_t is_it_identifier_or_keyword(
+    string_t* query,
+    size_t* current_index,
+    tokenize_result_t* result,
+    alloc_area* area
+){
+    if(!is_alphanumerical_or_floor(query->data[*current_index])){
+        return TOKENIZER_NO_MATCH;
+    }
+    size_t strating_index = *current_index;
+    *current_index+=1;
+    while(is_alphanumerical_or_floor(query->data[(*current_index)])){
+        *current_index+=1;
+    }
+    size_t len = *current_index - strating_index;
+
+    keyword_entry_t* kw = keyword_lookup(&query->data[strating_index], len);
+
+    token_t* token = append_result(result, area);
+
+    if(kw != NULL){
+        token->token_kind = TOKEN_KEYWORD;
+        token->token_value.keyword = kw->kind;
+        return TOKENIZER_MATCH;
+    }
+
+    token->token_kind = TOKEN_IDENTIFIER;
+    token->token_value.string = alloc_string_on_area(area, len);
+
+    for(size_t i=0; i<len;i+=1){
+        token ->token_value.string->data[i] = query->data[i+strating_index];
+    }
+    
+    return TOKENIZER_MATCH;
+}
+
+size_t punctuation_count(void) {
+    return sizeof(punctuations) / sizeof(punctuations[0]);
+}
+
+punctuation_entry_t* punctuation_lookup(
+    string_t* query,
+    size_t* current_index) {
+    size_t count = punctuation_count();
+    size_t remaining_len = (query->len - *current_index);
+    for (size_t i = 0; i < count; ++i) {
+        const punctuation_entry_t* p = &punctuations[i];
+        if (p->len <= remaining_len &&
+            strn_eq_ignore_case(&query->data[*current_index], p->symbol, p->len)) {
+            return p;
+        }
+    }
+    return NULL;
+}
+
+tokenizer_status_t is_it_punctuation(
+    string_t* query,
+    size_t* current_index,
+    tokenize_result_t* result,
+    alloc_area* area
+){
+    punctuation_entry_t* punctuation = punctuation_lookup(query, current_index);
+
+    if(punctuation == NULL){
+        return TOKENIZER_NO_MATCH;
+    }
+    *current_index += punctuation->len;
+    token_t* token = append_result(result, area);
+
+    token->token_kind = TOKEN_PUNCTUATION;
+    token->token_value.punctuation = punctuation->kind;
+
+    return TOKENIZER_MATCH;
+}
+
 tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
     if(allocation_space->capacity - allocation_space->offset < max_size_of_tokenize_result(query)){
         return &TOKENIZE_ERROR_NOT_ENOUGH_SPACE;
@@ -409,6 +861,9 @@ tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
         }
 
         TOKENIZER_PIPE_PART_CALL(is_it_placeholder(query, &current_index, result, allocation_space));
+        TOKENIZER_PIPE_PART_CALL(is_it_number(query, &current_index, result, allocation_space));
+        TOKENIZER_PIPE_PART_CALL(is_it_identifier_or_keyword(query, &current_index, result, allocation_space));
+        TOKENIZER_PIPE_PART_CALL(is_it_punctuation(query, &current_index, result, allocation_space));
 
         error_tokenizer_could_not_tokenize_character(result, allocation_space, query->data[current_index], current_index);
         break;
@@ -432,6 +887,9 @@ static const char* token_kind_to_string(token_kind_t kind) {
         case TOKEN_KEYWORD: return "KEYWORD";
         case TOKEN_STRING_LITERAL: return "STRING_LITERAL";
         case TOKEN_PLACEHOLDER: return "PLACEHOLDER";
+        case TOKEN_LONG_LITERAL: return "LONG_LITERAL";
+        case TOKEN_FLOAT_LITERAL: return "FLOAT_LITERAL";
+        case TOKEN_PUNCTUATION: return "PUNCTUATION";
         default: return "UNKNOWN";
     }
 }
@@ -465,11 +923,22 @@ void print_tokenize_result(tokenize_result_t* result) {
             case TOKEN_PLACEHOLDER:
                 print_string(current->token_value.string);
                 break;
-
+            case TOKEN_FLOAT_LITERAL:
+                printf("%f", current -> token_value.as_float);
+                break;
+            case TOKEN_LONG_LITERAL:
+                printf("%llu", current -> token_value.as_long);
+                break;
             case TOKEN_IDENTIFIER:
-            case TOKEN_KEYWORD:
-                // zakładam, że też używasz string_literal dla nich
                 print_string(current->token_value.string);
+                break;
+            
+            case TOKEN_KEYWORD: 
+                printf("%i", current->token_value.keyword);
+                break;
+            
+            case TOKEN_PUNCTUATION: 
+                printf("%i", current->token_value.punctuation);
                 break;
 
             default:
@@ -486,9 +955,14 @@ void print_tokenize_result(tokenize_result_t* result) {
 
 
 int main() {
-    printf("start");
 const uint8_t* query = (const uint8_t*)
-        "\"classical music where it counts--/**/\\\\\" $arg1 $arg2 $/*SELECT * FROM*/;";
+        "SELECT a, sum(b) OVER (PARTITION BY grp ORDER BY ts DESC) "
+        "FROM tesco "
+        "WHERE x >= $min_x "
+        "GROUP BY a, grp "
+        "HAVING sum(b) > $min_sum "
+        "ORDER BY ts DESC "
+        "LIMIT $limit OFFSET $offset;";
 
 string_t query_string= {
     query,

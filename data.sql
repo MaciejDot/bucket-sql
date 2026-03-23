@@ -1,1 +1,1 @@
-SELECT * FROM d WHERE a = '--/**/'
+SELECT * FROM d WHERE a = '--/**/' AND b = 123.23
