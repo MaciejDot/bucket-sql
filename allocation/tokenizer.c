@@ -30,12 +30,15 @@ typedef enum token_kind {
     TOKEN_IDENTIFIER,
     TOKEN_KEYWORD,
     TOKEN_STRING_LITERAL,
-    TOKEN_PLACEHOLDER
+    TOKEN_PLACEHOLDER,
+    TOKEN_FLOAT_LITERAL,
+    TOKEN_INT_LITERAL,
 } token_kind_t;
 
 typedef union token_value {
-    string_t* string_literal;
-    string_t* placeholder;
+    string_t* string;
+    float as_float;
+    signed long long as_long;  
 } token_value_t;
 
 typedef struct token {
@@ -240,8 +243,6 @@ uint8_t is_it_comment(string_t* query, size_t* current_index){
     return is_it_multi_line_comment(query, current_index);
 }
 
-//what about "abc\\\"def"
-
 tokenizer_status_t is_it_string_literal(string_t* query, size_t* current_index, tokenize_result_t* tokenize_result, alloc_area* allocation_space){
     uint8_t first_character = query->data[*current_index];
 
@@ -253,11 +254,18 @@ tokenizer_status_t is_it_string_literal(string_t* query, size_t* current_index, 
 
     *current_index += 1;
     uint8_t found_end = 0;
+    size_t escapes_counter = 0;
 
     while(*current_index < query->len){
-        if(query->data[*current_index - 1] != '\\' && query->data[*current_index] == first_character){
+        if(query->data[*current_index] == '\\') {
+            escapes_counter+=1;
+        }
+        if(escapes_counter % 2 == 0 && query->data[*current_index] == first_character){
             found_end = 1;
             break;
+        }
+        if(query->data[*current_index] != '\\'){
+            escapes_counter = 0;
         }
         *current_index += 1;
     }
@@ -300,27 +308,72 @@ tokenizer_status_t is_it_string_literal(string_t* query, size_t* current_index, 
     size_t string_length = *current_index - starting_index - 1;
 
     token->token_kind = TOKEN_STRING_LITERAL;
-    token->token_value.string_literal = alloc_string_on_area(allocation_space, string_length);
-    if (token->token_value.string_literal == NULL) {
+    token->token_value.string = alloc_string_on_area(allocation_space, string_length);
+    if (token->token_value.string == NULL) {
         return TOKENIZER_FATAL;
     }
 
     for(size_t char_index = 0; char_index < string_length; char_index += 1){
-        token->token_value.string_literal->data[char_index] = query->data[char_index + 1 + starting_index];
+        token->token_value.string->data[char_index] = query->data[char_index + 1 + starting_index];
     }
 
     (*current_index)++;
     return TOKENIZER_MATCH;
 }
-/*
-    should also signalize termination error for example - not ending string or string end that is like 'sdfjksy ssdf'FROM
-    0 - ok - did not found anything
-    1 - ok - found smth
-    2 - not ok - error parsing should break;
-*/
+
 tokenizer_status_t is_it_placeholder(string_t* query, size_t* current_index, tokenize_result_t* tokenize_result, alloc_area* allocation_space)
 {
-    return TOKENIZER_NO_MATCH;
+    if(query->data[*current_index] != '$'){
+        return TOKENIZER_NO_MATCH;
+    }
+
+    *current_index += 1;
+    size_t first_index = *current_index;
+    
+    while (*current_index < query -> len)
+    {
+        if(
+            it_is_whitespace(query, (*current_index) ) ||
+            query->data[(*current_index) ] == ';' ||
+            query->data[(*current_index) ] == ',' ||
+            query->data[(*current_index) ] == '.' ||
+            query->data[(*current_index) ] == ')' ||
+            it_is_begining_of_comment(query, (*current_index) )
+        ){
+            break;
+        }
+        *current_index += 1;
+    }
+    
+    if(*current_index == first_index){
+        make_error_string(
+            allocation_space,
+            tokenize_result,
+            "placeholder cannot be empty at %i character",
+            first_index - 1
+        );
+        return TOKENIZER_FATAL;
+    }
+
+    size_t string_length = *current_index - first_index;
+
+    token_t* token = append_result(tokenize_result, allocation_space);
+    if (token == NULL) {
+        return TOKENIZER_FATAL;
+    }
+    token->token_kind = TOKEN_PLACEHOLDER;
+    token->token_value.string = alloc_string_on_area(allocation_space, string_length);
+    if (token->token_value.string == NULL) {
+        return TOKENIZER_FATAL;
+    }
+
+    for(size_t char_index = 0; char_index < string_length; char_index += 1){
+        token->token_value.string->data[char_index] = query->data[char_index + first_index];
+    }
+
+    return TOKENIZER_MATCH;
+
+
     // @ 
 
 }
@@ -349,11 +402,12 @@ tokenize_result_t* tokenize(string_t* query, alloc_area* allocation_space){
 
         if(current_index >= query->len) break;
 
+        TOKENIZER_PIPE_PART_CALL(is_it_string_literal(query, &current_index, result, allocation_space));
+
         if(is_it_comment(query, &current_index)){
             continue;
         }
 
-        TOKENIZER_PIPE_PART_CALL(is_it_string_literal(query, &current_index, result, allocation_space));
         TOKENIZER_PIPE_PART_CALL(is_it_placeholder(query, &current_index, result, allocation_space));
 
         error_tokenizer_could_not_tokenize_character(result, allocation_space, query->data[current_index], current_index);
@@ -405,17 +459,17 @@ void print_tokenize_result(tokenize_result_t* result) {
 
         switch (current->token_kind) {
             case TOKEN_STRING_LITERAL:
-                print_string(current->token_value.string_literal);
+                print_string(current->token_value.string);
                 break;
 
             case TOKEN_PLACEHOLDER:
-                print_string(current->token_value.placeholder);
+                print_string(current->token_value.string);
                 break;
 
             case TOKEN_IDENTIFIER:
             case TOKEN_KEYWORD:
                 // zakładam, że też używasz string_literal dla nich
-                print_string(current->token_value.string_literal);
+                print_string(current->token_value.string);
                 break;
 
             default:
@@ -434,7 +488,7 @@ void print_tokenize_result(tokenize_result_t* result) {
 int main() {
     printf("start");
 const uint8_t* query = (const uint8_t*)
-        "\"classical music where it counts\" /*SELECT * FROM*/;";
+        "\"classical music where it counts--/**/\\\\\" $arg1 $arg2 $/*SELECT * FROM*/;";
 
 string_t query_string= {
     query,
